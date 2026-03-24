@@ -41,16 +41,21 @@ class MailSearch implements IMailSearch {
 	/** @var ITimeFactory */
 	private $timeFactory;
 
+	/** @var ElasticSearchProvider */
+	private $elasticSearchProvider;
+
 	public function __construct(FilterStringParser $filterStringParser,
 		ImapSearchProvider $imapSearchProvider,
 		MessageMapper $messageMapper,
 		PreviewEnhancer $previewEnhancer,
-		ITimeFactory $timeFactory) {
+		ITimeFactory $timeFactory,
+		ElasticSearchProvider $elasticSearchProvider) {
 		$this->filterStringParser = $filterStringParser;
 		$this->imapSearchProvider = $imapSearchProvider;
 		$this->messageMapper = $messageMapper;
 		$this->previewEnhancer = $previewEnhancer;
 		$this->timeFactory = $timeFactory;
+		$this->elasticSearchProvider = $elasticSearchProvider;
 	}
 
 	#[\Override]
@@ -145,11 +150,23 @@ class MailSearch implements IMailSearch {
 	}
 
 	/**
-	 * We combine local flag and headers merge with UIDs that match the body search if necessary
+	 * We combine local flag and headers merge with UIDs that match the body search if necessary.
+	 * When ElasticSearch is configured it is used for all text field matching (including body),
+	 * which avoids round-trips to the IMAP server and enables sub-second results.
 	 *
 	 * @throws ServiceException
 	 */
 	private function getIdsLocally(Account $account, Mailbox $mailbox, SearchQuery $query, string $sortOrder, ?int $limit): array {
+		if ($this->elasticSearchProvider->isAvailable()) {
+			return $this->elasticSearchProvider->findMatchingIds(
+				$account->getUserId(),
+				$query,
+				$mailbox->getId(),
+				$limit,
+				$sortOrder,
+			);
+		}
+
 		if (empty($query->getBodies())) {
 			return $this->messageMapper->findIdsByQuery($mailbox, $query, $sortOrder, $limit);
 		}
@@ -163,13 +180,22 @@ class MailSearch implements IMailSearch {
 	}
 
 	/**
-	 * We combine local flag and headers merge with UIDs that match the body search if necessary
-	 *
-	 * @todo find a way to search across all mailboxes efficiently without iterating over each of them and include IMAP results
+	 * Search across all mailboxes of a user.
+	 * When ElasticSearch is configured it handles cross-mailbox full-text search natively;
+	 * otherwise only indexed metadata fields are searched via the database.
 	 *
 	 * @throws ServiceException
 	 */
 	private function getIdsGlobally(IUser $user, SearchQuery $query, ?int $limit): array {
+		if ($this->elasticSearchProvider->isAvailable()) {
+			return $this->elasticSearchProvider->findMatchingIds(
+				$user->getUID(),
+				$query,
+				null,
+				$limit,
+			);
+		}
+
 		return $this->messageMapper->findIdsGloballyByQuery($user, $query, $limit);
 	}
 }

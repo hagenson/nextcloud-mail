@@ -39,6 +39,7 @@ use OCA\Mail\Http\Middleware\ProvisioningMiddleware;
 use OCA\Mail\Listener\AccountSynchronizedThreadUpdaterListener;
 use OCA\Mail\Listener\AddressCollectionListener;
 use OCA\Mail\Listener\DeleteDraftListener;
+use OCA\Mail\Listener\ElasticSearchListener;
 use OCA\Mail\Listener\FollowUpClassifierListener;
 use OCA\Mail\Listener\HamReportListener;
 use OCA\Mail\Listener\InteractionListener;
@@ -141,6 +142,8 @@ final class Application extends App implements IBootstrap {
 		$context->registerEventListener(MessageDeletedEvent::class, MessageCacheUpdaterListener::class);
 		$context->registerEventListener(MessageSentEvent::class, AddressCollectionListener::class);
 		$context->registerEventListener(MessageSentEvent::class, InteractionListener::class);
+		$context->registerEventListener(NewMessagesSynchronized::class, ElasticSearchListener::class);
+		$context->registerEventListener(MessageDeletedEvent::class, ElasticSearchListener::class);
 		$context->registerEventListener(NewMessagesSynchronized::class, MessageKnownSinceListener::class);
 		$context->registerEventListener(NewMessagesSynchronized::class, NewMessagesNotifier::class);
 		$context->registerEventListener(NewMessagesSynchronized::class, NewMessagesSummarizeListener::class);

@@ -1,7 +1,9 @@
 {
 	"config": {
 		"platform": {
-			"php": "8.1"
+			"php": "8.1",
+			"ext-dom": "20031129",
+			"ext-intl": "8.1.0"
 		},
 		"sort-packages": true,
 		"allow-plugins": {
@@ -69,7 +71,7 @@
 		"psalm": "psalm.phar",
 		"psalm:fix": "psalm.phar --alter --issues=InvalidReturnType,InvalidNullableReturnType,MismatchingDocblockParamType,MismatchingDocblockReturnType,MissingParamType,InvalidFalsableReturnType",
 		"post-install-cmd": [
-			"@composer bin all install --ansi",
+			"@composer bin all install --ansi --ignore-platform-reqs",
 			"\"vendor/bin/mozart\" compose",
 			"composer dump-autoload"
 		],
