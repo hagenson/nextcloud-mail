@@ -89,6 +89,9 @@ class FilterStringParser {
 			case 'body':
 				$query->addBody($param);
 				return true;
+			case 'attachment':
+				$query->addAttachment($param);
+				return true;
 			case 'tags':
 				$tags = explode(',', $param);
 				$query->setTags($tags);

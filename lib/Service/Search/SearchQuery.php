@@ -39,6 +39,9 @@ class SearchQuery {
 	/** @var string[] */
 	private $bodies = [];
 
+	/** @var string[] */
+	private $attachments = [];
+
 	/** @var array[] */
 	private $tags = [];
 
@@ -167,6 +170,17 @@ class SearchQuery {
 
 	public function addBody(string $body): void {
 		$this->bodies[] = $body;
+	}
+
+	/**
+	 * @return string[]
+	 */
+	public function getAttachments(): array {
+		return $this->attachments;
+	}
+
+	public function addAttachment(string $term): void {
+		$this->attachments[] = $term;
 	}
 
 	/**

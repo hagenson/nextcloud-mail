@@ -71,6 +71,19 @@
 						</div>
 					</div>
 					<div class="modal-inner--field">
+						<label class="modal-inner--label" for="attachmentsId">
+							{{ t('mail', 'Attachments') }}
+						</label>
+						<div class="modal-inner--container">
+							<input
+								id="attachmentsId"
+								v-model="searchInAttachments"
+								type="text"
+								class="search-input"
+								:placeholder="t('mail', 'Search in attachment content')">
+						</div>
+					</div>
+					<div class="modal-inner--field">
 						<label class="modal-inner--label" for="fromId">
 							{{ t('mail', 'Date') }}
 						</label>
@@ -366,6 +379,7 @@ export default {
 			searchInBcc: [],
 			searchInSubject: null,
 			searchInMessageBody: null,
+			searchInAttachments: null,
 			searchFlags: [],
 			mentionsMe: false,
 			startDate: null,
@@ -445,6 +459,7 @@ export default {
 				bcc: this.searchInBcc.length > 0 ? this.searchInBcc.map((address) => address.email) : null,
 				subject: this.searchInSubject !== null && this.searchInSubject.length > 1 ? this.searchInSubject : '',
 				body: this.searchInMessageBody !== null && this.searchInMessageBody.length > 1 ? this.searchInMessageBody : '',
+				attachment: this.searchInAttachments !== null && this.searchInAttachments.length > 1 ? this.searchInAttachments : '',
 				tags: this.selectedTags.length > 0 ? this.selectedTags.map((item) => item.id) : '',
 				flags: this.searchFlags.length > 0 ? this.searchFlags.map((item) => item) : '',
 				mentions: this.mentionsMe,
@@ -460,7 +475,7 @@ export default {
 					val?.forEach((address) => {
 						_search += `${key}:${encodeURI(address)} `
 					})
-				} else if (key === 'body') {
+				} else if (key === 'body' || key === 'attachment') {
 					val.split(' ').forEach((word) => {
 						if (word !== '' && val !== null) {
 							_search += `${key}:${encodeURI(word)} `
@@ -594,6 +609,7 @@ export default {
 			this.searchInBcc = []
 			this.searchInSubject = null
 			this.searchInMessageBody = null
+			this.searchInAttachments = null
 			this.searchFlags = []
 			this.startDate = null
 			this.endDate = null

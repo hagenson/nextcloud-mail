@@ -29,7 +29,7 @@ require_docker() {
 }
 
 wait_healthy() {
-    local max_attempts=30
+    local max_attempts=12
     local attempt=0
     info "Waiting for ElasticSearch to be ready on port ${ES_PORT}..."
     until curl -sf "http://localhost:${ES_PORT}/_cluster/health" >/dev/null 2>&1; do
@@ -37,7 +37,7 @@ wait_healthy() {
         if [[ $attempt -ge $max_attempts ]]; then
             die "ElasticSearch did not become healthy after ${max_attempts} attempts."
         fi
-        sleep 2
+        sleep 10
     done
     success "ElasticSearch is up."
 }

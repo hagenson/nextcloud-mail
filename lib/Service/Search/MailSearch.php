@@ -23,6 +23,7 @@ use OCA\Mail\IMAP\PreviewEnhancer;
 use OCA\Mail\IMAP\Search\Provider as ImapSearchProvider;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\FullTextSearch\IFullTextSearchManager;
 use OCP\IUser;
 
 class MailSearch implements IMailSearch {
@@ -41,21 +42,21 @@ class MailSearch implements IMailSearch {
 	/** @var ITimeFactory */
 	private $timeFactory;
 
-	/** @var ElasticSearchProvider */
-	private $elasticSearchProvider;
+	/** @var IFullTextSearchManager */
+	private $ftsManager;
 
 	public function __construct(FilterStringParser $filterStringParser,
 		ImapSearchProvider $imapSearchProvider,
 		MessageMapper $messageMapper,
 		PreviewEnhancer $previewEnhancer,
 		ITimeFactory $timeFactory,
-		ElasticSearchProvider $elasticSearchProvider) {
+		IFullTextSearchManager $ftsManager) {
 		$this->filterStringParser = $filterStringParser;
 		$this->imapSearchProvider = $imapSearchProvider;
 		$this->messageMapper = $messageMapper;
 		$this->previewEnhancer = $previewEnhancer;
 		$this->timeFactory = $timeFactory;
-		$this->elasticSearchProvider = $elasticSearchProvider;
+		$this->ftsManager = $ftsManager;
 	}
 
 	#[\Override]
@@ -150,52 +151,133 @@ class MailSearch implements IMailSearch {
 	}
 
 	/**
-	 * We combine local flag and headers merge with UIDs that match the body search if necessary.
-	 * When ElasticSearch is configured it is used for all text field matching (including body),
-	 * which avoids round-trips to the IMAP server and enables sub-second results.
+	 * Routes search to FullTextSearch when available, otherwise falls back to
+	 * the original IMAP body search + DB metadata filter path.
 	 *
 	 * @throws ServiceException
 	 */
 	private function getIdsLocally(Account $account, Mailbox $mailbox, SearchQuery $query, string $sortOrder, ?int $limit): array {
-		if ($this->elasticSearchProvider->isAvailable()) {
-			return $this->elasticSearchProvider->findMatchingIds(
+		if ($this->isFtsReady()) {
+			$ids = $this->searchViaFts(
 				$account->getUserId(),
 				$query,
 				$mailbox->getId(),
 				$limit,
 				$sortOrder,
 			);
+			// Apply structured filters (flags, date range) as a DB post-filter on
+			// the FTS candidate set.
+			return $this->messageMapper->findIdsByQuery($mailbox, $query, $sortOrder, $limit, $ids);
 		}
 
-		if (empty($query->getBodies())) {
+		// Original fallback: IMAP body search + DB metadata filter
+		if (empty($query->getBodies()) && empty($query->getAttachments())) {
 			return $this->messageMapper->findIdsByQuery($mailbox, $query, $sortOrder, $limit);
 		}
 
-		$fromImap = $this->imapSearchProvider->findMatches(
-			$account,
-			$mailbox,
-			$query
-		);
+		$fromImap = $this->imapSearchProvider->findMatches($account, $mailbox, $query);
 		return $this->messageMapper->findIdsByQuery($mailbox, $query, $sortOrder, $limit, $fromImap);
 	}
 
 	/**
-	 * Search across all mailboxes of a user.
-	 * When ElasticSearch is configured it handles cross-mailbox full-text search natively;
-	 * otherwise only indexed metadata fields are searched via the database.
+	 * Routes global (cross-mailbox) search to FullTextSearch when available,
+	 * otherwise falls back to the original DB-only global query (no body search).
 	 *
 	 * @throws ServiceException
 	 */
 	private function getIdsGlobally(IUser $user, SearchQuery $query, ?int $limit): array {
-		if ($this->elasticSearchProvider->isAvailable()) {
-			return $this->elasticSearchProvider->findMatchingIds(
-				$user->getUID(),
-				$query,
-				null,
-				$limit,
-			);
+		if ($this->isFtsReady()) {
+			return $this->searchViaFts($user->getUID(), $query, null, $limit, 'DESC');
 		}
 
+		// Original fallback: DB metadata search only (body/attachment search not
+		// possible cross-mailbox without FTS).
 		return $this->messageMapper->findIdsGloballyByQuery($user, $query, $limit);
+	}
+
+	/**
+	 * Returns true when FullTextSearch is installed, configured and has
+	 * indexed at least one mail document.
+	 */
+	private function isFtsReady(): bool {
+		return $this->ftsManager->isAvailable()
+			&& $this->ftsManager->isProviderIndexed('mail');
+	}
+
+	/**
+	 * Executes a search via IFullTextSearchManager and returns matching DB
+	 * message IDs.
+	 *
+	 * The search request array follows the format documented on
+	 * ISearchService::generateSearchRequest():
+	 *   - 'search'    : combined search string from all text fields
+	 *   - 'providers' : restricted to 'mail'
+	 *   - 'size'      : maximum results
+	 *   - 'options'   : mail_parts (non-empty = field-specific search)
+	 *
+	 * @return int[]
+	 */
+	private function searchViaFts(
+		string $userId,
+		SearchQuery $query,
+		?int $mailboxId,
+		?int $limit,
+		string $sortOrder = 'DESC',
+	): array {
+		// Build a combined search string from all text-oriented query fields.
+		$terms = array_merge(
+			$query->getBodies(),
+			$query->getAttachments(),
+			$query->getSubjects(),
+			$query->getFrom(),
+			$query->getTo(),
+			$query->getCc(),
+		);
+		$searchString = implode(' ', array_unique(array_filter($terms)));
+		if ($searchString === '') {
+			// No text terms — return all IDs (structured filters applied by DB
+			// post-filter in the caller).
+			return [];
+		}
+
+		// Determine which document parts to restrict the search to.
+		// When the user used field-specific tokens (subject:, body:, attachment:)
+		// we scope the FTS search accordingly. For a plain / simple search we
+		// leave mail_parts empty so all parts (including attachments) are searched.
+		$parts = [];
+		if (!empty($query->getSubjects()) && empty($query->getBodies()) && empty($query->getAttachments())) {
+			$parts = ['subject'];
+		} elseif (!empty($query->getBodies()) && empty($query->getSubjects()) && empty($query->getAttachments())) {
+			$parts = ['content', 'subject', 'from', 'to', 'cc', 'bcc'];
+		} elseif (!empty($query->getAttachments()) && empty($query->getBodies()) && empty($query->getSubjects())) {
+			$parts = ['attachments'];
+		}
+		// Mixed field tokens → leave parts empty to search everything.
+
+		$request = [
+			'providers' => ['mail'],
+			'search'    => $searchString,
+			'size'      => $limit ?? 50,
+			'options'   => ['mail_parts' => $parts],
+		];
+
+		try {
+			$results = $this->ftsManager->search($request, $userId);
+		} catch (\Throwable $e) {
+			// FTS failure must not break the UI — return empty and let the DB
+			// post-filter produce whatever it can from metadata alone.
+			return [];
+		}
+
+		if (empty($results)) {
+			return [];
+		}
+
+		/** @var \OCP\FullTextSearch\Model\ISearchResult $result */
+		$result = $results[0];
+		return array_map(
+			static fn ($doc) => (int)$doc->getId(),
+			$result->getDocuments(),
+		);
 	}
 }
