@@ -22,7 +22,7 @@ export default {
 				|| fileInfo.mime.startsWith('video/')
 				|| fileInfo.mime.startsWith('audio/')
 				|| fileInfo.mime === 'application/pdf')
-			&& OCA.Viewer.mimetypes.includes(fileInfo.mime))
+			&& OCA.Viewer?.mimetypes?.includes(fileInfo.mime))
 		},
 	},
 	methods: {

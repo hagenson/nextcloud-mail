@@ -737,6 +737,43 @@ class MessageMapper {
 	}
 
 	/**
+	 * Returns a map of MIME part ID → MIME type for every attachment part in
+	 * the message. Only the message structure is fetched — no part content is
+	 * downloaded — making this suitable for lightweight stub generation during
+	 * full-text-search indexing.
+	 *
+	 * @return array<string, string>  e.g. ['2' => 'application/pdf', '3' => 'image/png']
+	 *
+	 * @throws Horde_Imap_Client_Exception
+	 */
+	public function getAttachmentMimeTypes(
+		Horde_Imap_Client_Socket $client,
+		string $mailbox,
+		int $uid,
+	): array {
+		$query = new Horde_Imap_Client_Fetch_Query();
+		$query->structure();
+
+		$result = $client->fetch($mailbox, $query, [
+			'ids' => new Horde_Imap_Client_Ids([$uid]),
+		]);
+
+		if (($row = $result->first()) === null) {
+			return [];
+		}
+
+		$mimeTypes = [];
+		foreach ($row->getStructure()->partIterator() as $part) {
+			/** @var \Horde_Mime_Part $part */
+			if ($part->isAttachment()) {
+				$mimeTypes[$part->getMimeId()] = $part->getType();
+			}
+		}
+		return $mimeTypes;
+	}
+
+
+	/**
 	 * @param Horde_Imap_Client_Base $client
 	 * @param string $mailbox
 	 * @param int $messageUid
