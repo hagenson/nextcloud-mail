@@ -6,6 +6,7 @@ import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 import { curry } from 'ramda'
 import { convertAxiosError } from '../errors/convert.js'
+import RequestAbortedError from '../errors/RequestAbortedError.js'
 import SyncIncompleteError from '../errors/SyncIncompleteError.js'
 import { parseErrorResponse } from '../http/ErrorResponseParser.js'
 
@@ -31,7 +32,7 @@ export function fetchEnvelope(accountId, id) {
 		})
 }
 
-export function fetchEnvelopes(accountId, mailboxId, query, cursor, limit, sort, view, cacheBuster) {
+export function fetchEnvelopes(accountId, mailboxId, query, cursor, limit, sort, view, cacheBuster, signal) {
 	const url = generateUrl('/apps/mail/api/messages')
 	const params = {
 		mailboxId,
@@ -59,10 +60,14 @@ export function fetchEnvelopes(accountId, mailboxId, query, cursor, limit, sort,
 	return axios
 		.get(url, {
 			params,
+			signal: signal || undefined,
 		})
 		.then((resp) => resp.data)
 		.then((envelopes) => envelopes.map(amendEnvelopeWithIds(accountId)))
 		.catch((error) => {
+			if (axios.isCancel(error)) {
+				throw new RequestAbortedError()
+			}
 			throw convertAxiosError(error)
 		})
 }

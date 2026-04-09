@@ -655,6 +655,7 @@ export default function mainStoreActions() {
 			query,
 			addToUnifiedMailboxes = true,
 			includeCacheBuster = false,
+			signal = undefined,
 		}) {
 			return handleHttpAuthErrors(async () => {
 				const mailbox = this.getMailbox(mailboxId)
@@ -667,6 +668,7 @@ export default function mainStoreActions() {
 							addToUnifiedMailboxes: false,
 							sort: this.getPreference('sort-order'),
 							view: this.getPreference('layout-message-view'),
+							signal,
 						})),
 						Promise.all.bind(Promise),
 						andThen(map(sliceToPage)),
@@ -692,7 +694,7 @@ export default function mainStoreActions() {
 						envelopes,
 						addToUnifiedMailboxes,
 					}))),
-				)(mailbox.accountId, mailboxId, query, undefined, PAGE_SIZE, this.getPreference('sort-order'), this.getPreference('layout-message-view'), includeCacheBuster ? mailbox.cacheBuster : undefined)
+				)(mailbox.accountId, mailboxId, query, undefined, PAGE_SIZE, this.getPreference('sort-order'), this.getPreference('layout-message-view'), includeCacheBuster ? mailbox.cacheBuster : undefined, signal)
 			})
 		},
 		async fetchNextEnvelopePage({

@@ -187,7 +187,12 @@ class MailSearch implements IMailSearch {
 	 */
 	private function getIdsGlobally(IUser $user, SearchQuery $query, ?int $limit): array {
 		if ($this->isFtsReady()) {
-			return $this->searchViaFts($user->getUID(), $query, null, $limit, 'DESC');
+			$ids = $this->searchViaFts($user->getUID(), $query, null, $limit, 'DESC');
+			// null means no text terms — fall through to the DB-only path so that
+			// structured filters (flags, dates, etc.) still work globally.
+			if ($ids !== null) {
+				return $ids;
+			}
 		}
 
 		// Original fallback: DB metadata search only (body/attachment search not
@@ -215,7 +220,11 @@ class MailSearch implements IMailSearch {
 	 *   - 'size'      : maximum results
 	 *   - 'options'   : mail_parts (non-empty = field-specific search)
 	 *
-	 * @return int[]
+	 * Returns null when there are no text search terms (caller should apply
+	 * structured DB filters without any FTS candidate restriction).
+	 * Returns an empty array when FTS was consulted but found no matches.
+	 *
+	 * @return int[]|null
 	 */
 	private function searchViaFts(
 		string $userId,
@@ -223,7 +232,7 @@ class MailSearch implements IMailSearch {
 		?int $mailboxId,
 		?int $limit,
 		string $sortOrder = 'DESC',
-	): array {
+	): ?array {
 		// Build a combined search string from all text-oriented query fields.
 		$terms = array_merge(
 			$query->getBodies(),
@@ -235,9 +244,9 @@ class MailSearch implements IMailSearch {
 		);
 		$searchString = implode(' ', array_unique(array_filter($terms)));
 		if ($searchString === '') {
-			// No text terms — return all IDs (structured filters applied by DB
-			// post-filter in the caller).
-			return [];
+			// No text terms — signal the caller to skip FTS candidate filtering
+			// and apply only the structured DB filters (flags, dates, etc.).
+			return null;
 		}
 
 		// Determine which document parts to restrict the search to.

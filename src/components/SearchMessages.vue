@@ -481,11 +481,14 @@ export default {
 							_search += `${key}:${encodeURI(word)} `
 						}
 					})
-				} else if (val !== '' && val !== null) {
+				} else if (val !== '' && val !== null && val !== false) {
 					_search += `${key}:${encodeURI(val)} `
 				}
 				return val
 			})
+			if (_search.trim() === '') {
+				return ''
+			}
 			_search += `match:${encodeURI(this.match)} `
 
 			return _search.trim()

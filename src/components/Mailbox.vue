@@ -59,6 +59,7 @@ import LoadingSkeleton from './LoadingSkeleton.vue'
 import SectionTitle from './SectionTitle.vue'
 import MailboxLockedError from '../errors/MailboxLockedError.js'
 import MailboxNotCachedError from '../errors/MailboxNotCachedError.js'
+import RequestAbortedError from '../errors/RequestAbortedError.js'
 import { matchError } from '../errors/match.js'
 import NoTrashMailboxConfiguredError
 	from '../errors/NoTrashMailboxConfiguredError.js'
@@ -141,6 +142,7 @@ export default {
 			endReached: false,
 			syncedMailboxes: new Set(),
 			skipListTransition: false,
+			abortController: null,
 		}
 	},
 
@@ -187,7 +189,11 @@ export default {
 		},
 
 		searchQuery() {
-			this.loadEnvelopes()
+			if (this.abortController) {
+				this.abortController.abort()
+			}
+			this.abortController = new AbortController()
+			this.loadEnvelopes(this.abortController.signal)
 		},
 
 		sortOrder() {
@@ -218,6 +224,9 @@ export default {
 	},
 
 	unmounted() {
+		if (this.abortController) {
+			this.abortController.abort()
+		}
 		this.bus.off('load-more', this.onScroll)
 		this.bus.off('delete', this.onDelete)
 		this.bus.off('archive', this.onArchive)
@@ -239,7 +248,7 @@ export default {
 				})
 		},
 
-		async loadEnvelopes() {
+		async loadEnvelopes(signal = undefined) {
 			logger.debug(`Fetching envelopes for folder ${this.mailbox.databaseId} (${this.searchQuery})`, this.mailbox)
 			if (!this.syncedMailboxes.has(this.mailbox.databaseId + (this.searchQuery ?? ''))) {
 				// Only trigger skeleton if we didn't sync envelopes yet
@@ -259,6 +268,7 @@ export default {
 					mailboxId: this.mailbox.databaseId,
 					query: this.searchQuery,
 					limit: this.initialPageSize,
+					signal,
 				})
 
 				logger.debug(envelopes.length + ' envelopes fetched', { envelopes })
@@ -267,6 +277,11 @@ export default {
 				this.loadingEnvelopes = false
 			} catch (error) {
 				await matchError(error, {
+					[RequestAbortedError.getName()]: () => {
+						// Request was aborted by a newer search.
+						// Do NOT touch loadingEnvelopes — the replacement request
+						// already owns that flag and will clear it when it completes.
+					},
 					[MailboxLockedError.getName()]: async (error) => {
 						logger.info(`Mailbox ${this.mailbox.databaseId} (${this.searchQuery}) is locked`, { error })
 						await wait(15 * 1000)
